@@ -1,0 +1,9 @@
+apiVersion: v2
+name: jxe-billing-report
+description: A Helm chart for Kubernetes. Deploying a JXE billing report cron to the jarvice-system namespace
+
+type: application
+
+version: 0.1.0
+
+appVersion: "1.1.0"

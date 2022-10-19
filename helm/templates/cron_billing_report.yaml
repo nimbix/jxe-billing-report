@@ -1,0 +1,48 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: billing-report-last-month
+  namespace: "jarvice-system"
+spec:
+  schedule: "{{ .Values.report.cronschedule }}"
+  failedJobsHistoryLimit: 50
+  successfulJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 45
+  suspend: false
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: jarvice-system
+          containers:
+          - name: {{ .Values.report.name }}
+            image: {{ .Values.report.image }}
+            command: [/app/billing_report.py]
+            args: ["{{ .Values.report.billingperiod }}"]
+            env:
+            - name: BC_TAG
+              value: '{{ .Values.report.bctag }}'
+            - name: NAME_TAG
+              value: '{{ .Values.report.nametag }}'
+            - name: EMAIL_SERVER
+              value: '{{ .Values.report.emailserver }}'
+            - name: EMAIL_SERVER_USER
+              value: '{{ .Values.report.emailserveruser }}'
+            - name: EMAIL_SERVER_PASSWORD
+              value: '{{ .Values.report.emailserverpassword }}'
+            - name: FROM_EMAIL
+              value: '{{ .Values.report.fromemail }}'
+            - name: EMAIL_LIST
+              value: '{{ .Values.report.emaillist }}'
+            volumeMounts:
+            - name: {{ .Values.report.awscredsecret }}
+              mountPath: /root/.aws
+          volumes:
+            - name: {{ .Values.report.awscredsecret }}
+              secret:
+                # Provide the name of the ConfigMap containing the files you want
+                # to add to the container
+                secretName: {{ .Values.report.awscredsecret }}
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 600
