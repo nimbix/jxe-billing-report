@@ -21,10 +21,22 @@ spec:
             command: [/app/billing_report.py]
             args: ["{{ .Values.report.billingperiod }}"]
             env:
+            {{ if .Values.report.awsstorage.enabled }}- name: AWS_STORAGE
+              value: '{{ .Values.report.awsstorage.enabled }}'
             - name: BC_TAG
-              value: '{{ .Values.report.bctag }}'
+              value: '{{ .Values.report.awsstorage.bctag }}'
             - name: NAME_TAG
-              value: '{{ .Values.report.nametag }}'
+              value: '{{ .Values.report.awsstorage.nametag }}'{{ end }}
+            {{ if .Values.report.gcpstorage.enabled }}- name: GCP_STORAGE
+              value: '{{ .Values.report.gcpstorage.enabled }}'
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: '/root/.gcp/{{ .Values.report.gcpstorage.gcpcredfilename }}'
+            - name: BQ_DB
+              value: '{{ .Values.report.gcpstorage.bigquerydb }}'
+            - name: BC_LABEL
+              value: '{{ .Values.report.gcpstorage.bclabel }}'
+            - name: NAME_LABEL
+              value: '{{ .Values.report.gcpstorage.namelabel }}'{{ end }}
             - name: EMAIL_SERVER
               value: '{{ .Values.report.emailserver }}'
             - name: EMAIL_SERVER_USER
@@ -36,13 +48,16 @@ spec:
             - name: EMAIL_LIST
               value: '{{ .Values.report.emaillist }}'
             volumeMounts:
-            - name: {{ .Values.report.awscredsecret }}
-              mountPath: /root/.aws
+            {{ if .Values.report.awsstorage.enabled }}- name: {{ .Values.report.awsstorage.awscredsecret }}
+              mountPath: /root/.aws{{ end }}
+            {{ if .Values.report.gcpstorage.enabled }}- name: {{ .Values.report.gcpstorage.gcpcredsecret }}
+              mountPath: /root/.gcp{{ end }}
           volumes:
-            - name: {{ .Values.report.awscredsecret }}
+            {{ if .Values.report.awsstorage.enabled }}- name: {{ .Values.report.awsstorage.awscredsecret }}
               secret:
-                # Provide the name of the ConfigMap containing the files you want
-                # to add to the container
-                secretName: {{ .Values.report.awscredsecret }}
+                secretName: {{ .Values.report.awsstorage.awscredsecret }}{{ end }}
+            {{ if .Values.report.gcpstorage.enabled }}- name: {{ .Values.report.gcpstorage.gcpcredsecret }}
+              secret:
+                secretName: {{ .Values.report.gcpstorage.gcpcredsecret }}{{ end }}
           restartPolicy: Never
           terminationGracePeriodSeconds: 600

@@ -4,16 +4,25 @@ report:
     #Billing report name
     name: "billing-report-lastmonth"
     #Billing Code tag name applied to the AWS EFS vaults
-    bctag: "BillingCode"
     #Name tag applied to the AWS EFS vaults
-    nametag: "Name"
     #Email list separated by a : For example "email1@email.com:email2@email.com"
     emaillist: ""
     fromemail: ""
     emailserver: ""
     emailserveruser: ""
     emailserverpassword: ""
-    awscredsecret: "awscreds"
     cronschedule: "0 9 1 * *"
     #Acceptable values "last", "current" and year month date format 202209 for example 
     billingperiod: "last"
+    awsstorage:
+        enabled: true
+        awscredsecret: "awscreds"
+        bctag: "BillingCode"
+        nametag: "Name"
+    gcpstorage:
+        enabled: true
+        gcpcredsecret: "gcpcreds"
+        gcpcredfilename: ""
+        bigquerydb: ""
+        bclabel: "billing-code"
+        namelabel: "name"

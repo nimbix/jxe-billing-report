@@ -12,6 +12,7 @@ from kubernetes import config
 from kubernetes.client.api import core_v1_api
 from pod_exec import exec_command, get_pod_name
 from send_email import send_email #Configure for your email server
+from google.cloud import bigquery
 
 def get_aws_cost_and_usage(timeperiod, granularity, costfilter, metrics, groupby):
     client = boto3.client('ce')
@@ -38,37 +39,10 @@ def run_dal_cmd(cmd, namespace):
     results = eval(exec_command(core_v1, dalHost, namespace, commands ))
     return results
 
-def dinit(bc, c=[], com=0, stor=0, v=[]):
-    return { "company" : c.copy(), "BillingCode" : str(bc), "compute" : com, "storage" : stor, "vaults": v.copy()}
+def dinit(bc, c=[], com=0, stor=0, v=[], gv=[]):
+    return { "company" : c.copy(), "BillingCode" : str(bc), "compute" : com, "storage" : stor, "awsvaults": v.copy(), "gcpvaults": gv.copy()}
 
-def main():
-    today = datetime.date.today()
-    first = today.replace(day=1)
-    lastMonth = first - datetime.timedelta(days=1)
-    bctag = os.environ["BC_TAG"]
-    nametag = os.environ["NAME_TAG"]
-    period = sys.argv[1]
-    if period == "current":
-        month = today.strftime("%Y%m")
-        working_date = first
-    elif period == "last" :
-        month = lastMonth.strftime("%Y%m")
-        working_date = lastMonth
-    elif re.match('[0-9][0-9][0-9][0-9][0-9][0-9]', period) :
-        month = str(period)
-        period = "range"
-        working_date = datetime.datetime.strptime(month, "%Y%m")
-    else:
-        print("There is a problem with your input.")
-        print("Accepted values: last, current OR year month date string 202209 for example.")
-        sys.exit(1)
-    d, lastday = calendar.monthrange(int(month[0:4]), int(month[-2:].strip("0")))
-    lastofmonth="{}-{}-{}".format(month[0:4],month[-2:],str(lastday))
-    firstofmonth="{}-{}-{}".format(month[0:4],month[-2:],"01")
-    nextmonth = (datetime.datetime.strptime(lastofmonth, '%Y-%m-%d') + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-    month_name = working_date.strftime("%B")
-    year = working_date.year
-    totals = {}
+def aws_storage_cost(totals, firstofmonth, nextmonth, bctag, nametag):
 
     #Define AWS Cost and Usage Query
     timeperiod = {
@@ -107,9 +81,11 @@ def main():
                         totals[bc] = dinit(bc = bc)
                 elif key.split("$")[0] == "Name" :
                     vaultname = (key.split("$")[1])
-            totals[bc]["vaults"].append(vaultname)
+            totals[bc]["awsvaults"].append(vaultname)
             totals[bc]["storage"] += float(met["Metrics"]['BlendedCost']['Amount'])
+    return totals
 
+def jxe_compute_cost(totals, period, firstofmonth, nextmonth):
     #Run Jarvice dal commands to get compute totals and company lists.
     if period != "range" :
         report = 'import JarviceDAL as dal; print(dal.req(\'userReportBilling\', timeperiod=\'{}\'))'.format(period)
@@ -132,12 +108,86 @@ def main():
             if key not in totals :
                 totals[key] = dinit(bc = key)
             totals[key]['compute'] += float(billing_report[key]['compute_cost'])
-    usernames = {}
 
     #Drop compute summed total entry
     totals.pop("@")
+    return totals
+
+def gcp_storage_cost(totals, month):
+    bqdb = os.environ["BQ_DB"]
+    bc_label = os.environ["BC_LABEL"]
+    name_label = os.environ["NAME_LABEL"]
+    bqclient = bigquery.Client()
+    query = """SELECT
+      IFNULL(((select l.value from UNNEST(labels) l where key = "{}" )),"NoBillingCode") as BillingCode,
+      SUM(cost) as StorageCost,
+      --service.description as service,
+      IFNULL(((select l.value from UNNEST(labels) l where key = "{}" )),NULL) as name,
+      SUM(usage.amount_in_pricing_units) as Usage,
+      ((SUM(CAST(cost * 1000000 AS int64))
+            + SUM(IFNULL((SELECT SUM(CAST(c.amount * 1000000 as int64))
+                          FROM UNNEST(credits) c
+                          WHERE c.type not in("COMMITTED_USAGE_DISCOUNT", "PROMOTION")
+                          ), 0))) / 1000000)  as cost
+    FROM `{}` a
+    where cost > 0.01
+    AND invoice.month = '{}'
+    AND service.description like "Cloud Filestore%"
+    GROUP BY 1,3
+    ORDER BY cost DESC""".format(bc_label, name_label, bqdb, month)
+    query_job = bqclient.query(query)  # API request
+    rows = query_job.result()
+    for row in rows:
+        bc = str(row['BillingCode'])
+        if not row['name'] :
+            name = ""
+        else:
+            name = row['name']
+        if bc not in totals:
+            totals[bc] = dinit(bc = bc)
+        totals[bc]['storage'] += float(row['StorageCost'])
+        totals[bc]['gcpvaults'].append(name)
+        #totals[row['BillingCode']] = row['StorageCost']
+    return totals
+
+def main():
+    today = datetime.date.today()
+    first = today.replace(day=1)
+    lastMonth = first - datetime.timedelta(days=1)
+    bctag = os.environ["BC_TAG"]
+    nametag = os.environ["NAME_TAG"]
+    period = sys.argv[1]
+    if period == "current":
+        month = today.strftime("%Y%m")
+        working_date = first
+    elif period == "last" :
+        month = lastMonth.strftime("%Y%m")
+        working_date = lastMonth
+    elif re.match('[0-9][0-9][0-9][0-9][0-9][0-9]', period) :
+        month = str(period)
+        period = "range"
+        working_date = datetime.datetime.strptime(month, "%Y%m")
+    else:
+        print("There is a problem with your input.")
+        print("Accepted values: last, current OR year month date string 202209 for example.")
+        sys.exit(1)
+    d, lastday = calendar.monthrange(int(month[0:4]), int(month[-2:].strip("0")))
+    lastofmonth="{}-{}-{}".format(month[0:4],month[-2:],str(lastday))
+    firstofmonth="{}-{}-{}".format(month[0:4],month[-2:],"01")
+    nextmonth = (datetime.datetime.strptime(lastofmonth, '%Y-%m-%d') + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    month_name = working_date.strftime("%B")
+    year = working_date.year
+    totals = {}
+    if os.getenv("AWS_STORAGE") and os.environ["AWS_STORAGE"]:
+        totals = aws_storage_cost(totals, firstofmonth, nextmonth, bctag, nametag)
+    if os.getenv("GCP_STORAGE") and os.environ["GCP_STORAGE"]:
+        totals = gcp_storage_cost(totals, month)
+    totals = jxe_compute_cost(totals, period, firstofmonth, nextmonth)
 
     #Build dictionary using the Jarvice username as the key for payer Company lookup.
+    users_cmd = 'import JarviceDAL as dal; print(dal.req(\'userList\'))'
+    users = run_dal_cmd(users_cmd, "jarvice-system")
+    usernames = {}
     for user in users :
         user = dict(user)
         usernames[user['user_login']] = user
@@ -146,7 +196,7 @@ def main():
     for user in users :
         bc = str(user["billing_code"])
         if bc not in totals :
-            totals[bc] = dinit(bc = key)
+            totals[bc] = dinit(bc = bc)
         if bc in totals and user["payer"] and usernames[user["payer"]]["user_company"] and usernames[user["payer"]]["user_company"] not in totals[bc]["company"] and user["payer"] != "":
             totals[bc]["company"].append(usernames[user["payer"]]["user_company"])
         elif bc in totals and user["user_company"] and user["user_company"] not in totals[bc]["company"] :
@@ -176,9 +226,9 @@ def main():
     report_name = "billing_report_{}_{}.csv".format(month_name, year)
     with open(report_name , 'w', newline='') as csvfile:
         cwriter = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        cwriter.writerow(['Account', 'Billing Code', 'Compute Cost', 'Storage Cost', 'EFS Vaults'])
+        cwriter.writerow(['Account', 'Billing Code', 'Compute Cost', 'Storage Cost', 'AWS EFS Vaults', 'GCP Filestore Vaults'])
         for v in tl :
-            cwriter.writerow([ " ".join(v["company"]), v["BillingCode"], v["compute"], v["storage"], " ".join(v["vaults"]) ])
+            cwriter.writerow([ " ".join(v["company"]), v["BillingCode"], v["compute"], v["storage"], ", ".join(v["awsvaults"]), ", ".join(v["gcpvaults"]) ])
 
     emails = os.environ["EMAIL_LIST"].split(":")
     from_email = os.environ["FROM_EMAIL"]
