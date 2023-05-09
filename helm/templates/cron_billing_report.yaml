@@ -1,7 +1,7 @@
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
-  name: billing-report-last-month
+  name: {{ .Values.report.name }}
   namespace: "jarvice-system"
 spec:
   schedule: "{{ .Values.report.cronschedule }}"
@@ -20,6 +20,8 @@ spec:
             image: {{ .Values.report.image }}
             command: [/app/billing_report.py]
             args: ["{{ .Values.report.billingperiod }}"]
+            #command: ["tail"]
+            #args: ["-f", "/var/log/alternatives.log"]
             env:
             {{ if .Values.report.awsstorage.enabled }}- name: AWS_STORAGE
               value: '{{ .Values.report.awsstorage.enabled }}'
