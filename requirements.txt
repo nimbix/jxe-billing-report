@@ -1,3 +1,4 @@
 google-cloud-bigquery
 boto3
 kubernetes
+mysql-connector-python
