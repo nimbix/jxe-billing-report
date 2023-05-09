@@ -7,12 +7,26 @@ import sys
 import csv
 import os
 import re
+import mysql.connector
 from collections import OrderedDict
 from kubernetes import config
 from kubernetes.client.api import core_v1_api
 from pod_exec import exec_command, get_pod_name
 from send_email import send_email #Configure for your email server
 from google.cloud import bigquery
+
+
+def db_conn():
+    db_pw = os.environ['MYSQL_PW']
+    db_user = os.environ['MYSQL_USER']
+    db = os.environ['MYSQL_DB']
+    db_host = os.environ['MYSQL_HOST']
+    dbcnx = mysql.connector.connect(user=db_user, password=db_pw,
+                                  host=db_host,
+                                  database=db,
+                                  port='3306')
+    dbcursor = dbcnx.cursor()
+    return dbcnx, dbcursor
 
 def get_aws_cost_and_usage(timeperiod, granularity, costfilter, metrics, groupby):
     client = boto3.client('ce')
@@ -229,6 +243,14 @@ def main():
         cwriter.writerow(['Account', 'Billing Code', 'Compute Cost', 'Storage Cost', 'AWS EFS Vaults', 'GCP Filestore Vaults'])
         for v in tl :
             cwriter.writerow([ " ".join(v["company"]), v["BillingCode"], v["compute"], v["storage"], ", ".join(v["awsvaults"]), ", ".join(v["gcpvaults"]) ])
+            db_cnx, db_cursor = db_conn()
+            deleteString = """ DELETE FROM billing_report_months WHERE  Month = {};""".format(month)
+            insertString = """ INSERT INTO billing_report_months (AccountName, BillingCode, ComputeCost, StorageCost, Month)
+VALUES ({}, {}, {}, {}, {}); """.format(" ".join(v["company"]), v["BillingCode"], v["compute"], v["storage"], month)
+            db_cursor.execute(deleteString)
+            db_cnx.commit()
+            db_cursor.execute(insertString)
+            db_cnx.commit()
 
     emails = os.environ["EMAIL_LIST"].split(":")
     from_email = os.environ["FROM_EMAIL"]

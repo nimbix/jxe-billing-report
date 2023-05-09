@@ -47,6 +47,10 @@ spec:
               value: '{{ .Values.report.fromemail }}'
             - name: EMAIL_LIST
               value: '{{ .Values.report.emaillist }}'
+            {{- range $key, $value := $.Values.report.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
             volumeMounts:
             {{ if .Values.report.awsstorage.enabled }}- name: {{ .Values.report.awsstorage.awscredsecret }}
               mountPath: /root/.aws{{ end }}

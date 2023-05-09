@@ -1,5 +1,10 @@
 ##Values for JXE Billing Report
 report:
+    env:
+      MYSQL_DB: ""
+      MYSQL_PW: ""
+      MYSQL_HOST: ""
+      MYSQL_USER: ""
     image: "us-docker.pkg.dev/jarvice/images/jxe-billing-report:20221020"
     #Billing report name
     name: "billing-report-lastmonth"
@@ -12,7 +17,7 @@ report:
     emailserveruser: ""
     emailserverpassword: ""
     cronschedule: "0 9 1 * *"
-    #Acceptable values "last", "current" and year month date format 202209 for example 
+    #Acceptable values "last", "current" and year month date format 202209 for example
     billingperiod: "last"
     awsstorage:
         enabled: true
