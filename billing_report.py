@@ -241,16 +241,16 @@ def main():
     with open(report_name , 'w', newline='') as csvfile:
         cwriter = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         cwriter.writerow(['Account', 'Billing Code', 'Compute Cost', 'Storage Cost', 'AWS EFS Vaults', 'GCP Filestore Vaults'])
+        deleteString = """ DELETE FROM billing_report_months WHERE  Month = {};""".format(month)
+        print(deleteString)
+        db_cnx, db_cursor = db_conn()
+        db_cursor.execute(deleteString)
+        db_cnx.commit()
         for v in tl :
             cwriter.writerow([ " ".join(v["company"]), v["BillingCode"], v["compute"], v["storage"], ", ".join(v["awsvaults"]), ", ".join(v["gcpvaults"]) ])
-            db_cnx, db_cursor = db_conn()
-            deleteString = """ DELETE FROM billing_report_months WHERE  Month = {};""".format(month)
             insertString = """ INSERT INTO billing_report_months (AccountName, BillingCode, ComputeCost, StorageCost, Month)
 VALUES ('{}', '{}', '{}', '{}', '{}'); """.format(" ".join(v["company"]), v["BillingCode"], v["compute"], v["storage"], month)
-            print(deleteString)
             print(insertString)
-            db_cursor.execute(deleteString)
-            db_cnx.commit()
             db_cursor.execute(insertString)
             db_cnx.commit()
 
